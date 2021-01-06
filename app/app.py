@@ -11,10 +11,42 @@ app = Flask(__name__)
 
 class PortScan:
     def __init__(self, target, port_list):
+
+        if target.startswith('https://'):
+            target = target[len('https://'):]
+        elif target.startswith('http://'):
+            target = target[len('http://'):]
+
         self.target = target
         self.port_list = port_list
 
         self.result = dict()
+
+    def check_url(self):
+        if not isinstance(self.target, str):
+            return False
+        regex = re.compile(
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+        return re.match(regex, self.target) is not None
+
+    def check_port(self):
+
+        if not isinstance(self.port_list, list):
+            return False
+
+        for port in self.port_list:
+            if not isinstance(port, int):
+                return False
+
+            if not (0 <= port <= 65353):
+                return False
+
+        return True
 
     def scan(self):
 
@@ -44,42 +76,31 @@ class PortScan:
             s.close()
 
 
-def check_url(url):
-    import re
-    regex = re.compile(
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-
-    return (re.match(regex, url) is not None)
-
-
 @app.route('/')
 def get():
     ip = request.args.get('ip')
-    if not check_url(ip):
-        return jsonify(error=f'invalid url: {ip}'), 400, {'ContentType': 'application/json'}
     port = request.args.get('port')
+
+    ports = port.split(',')
+
+    try:
+        port_list = list(map(int, ports))
+    except ValueError as e:
+        return jsonify(error=f'invalid port value: {port}'), 400, {'ContentType': 'application/json'}
+
+    port_scan = PortScan(ip, port_list)
+
+    if not port_scan.check_url():
+        return jsonify(error=f'invalid url: {ip}'), 400, {'ContentType': 'application/json'}
+    if not port_scan.check_port():
+        return jsonify(error=f'invalid port: {port}'), 400, {'ContentType': 'application/json'}
+
+    port_scan.scan()
 
     result = dict()
 
     result['ip'] = ip
-    ports = port.split(',')
-    # port_list = list(map(int, port_list))
-    port_list = list()
-    for port in ports:
-        try:
-            port_list.append(int(port))
-        except ValueError as e:
-            # bad request
-            return jsonify(error=str(e)), 400, {'ContentType': 'application/json'}
-
-    port_scan = PortScan(ip, port_list)
-    port_scan.scan()
-
-    result['result'] = port_scan.result
+    result['ports'] = port_scan.result
 
     return jsonify(result), 200, {'ContentType': 'application/json'}
 
@@ -87,11 +108,14 @@ def get():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=9999, debug=True)
 
-    # port_scan = PortScan(
-    #     # '192.168.3.2',
-    #     'www.google.com',
-    #     ['sjkdf', 80, 234]
-    # )
-    #
-    # port_scan.scan()
-    # print(port_scan.result)
+
+    def test(target, port_list):
+        port_scan = PortScan(target, port_list)
+
+        port_scan.scan()
+        print(target, port_scan.result)
+
+    # test('www.google.com', [80, 443, 987])
+    # test('www.youtube.com/', [80, 443, 987])
+    # test(28933, [80, 443, 987])
+    # test('www.dkfjskjdf.com', [80, 443, 987])

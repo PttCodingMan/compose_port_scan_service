@@ -3,8 +3,8 @@ version: '3.8'
 services:
   flask-app-service:
     build: ./app
+    restart: always
     volumes:
       - ./app:/usr/src/app
-      - .:/user/src
     ports:
       - 80:9999
