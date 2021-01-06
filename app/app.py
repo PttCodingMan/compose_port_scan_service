@@ -1,8 +1,10 @@
 from flask import Flask
 from flask import request
-import json
+from flask import jsonify
+
 import socket
 import threading
+import re
 
 app = Flask(__name__)
 
@@ -31,28 +33,55 @@ class PortScan:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
 
-        result = s.connect_ex((self.target, current_port))
-        self.result[current_port] = (result == 0)
-        s.close()
+        try:
+            result = s.connect_ex((self.target, current_port))
+            self.result[current_port] = (result == 0)
+        except TypeError:
+            pass
+        except socket.gaierror:
+            self.result[current_port] = False
+        finally:
+            s.close()
+
+
+def check_url(url):
+    import re
+    regex = re.compile(
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    return (re.match(regex, url) is not None)
 
 
 @app.route('/')
 def get():
     ip = request.args.get('ip')
+    if not check_url(ip):
+        return jsonify(error=f'invalid url: {ip}'), 400, {'ContentType': 'application/json'}
     port = request.args.get('port')
 
     result = dict()
 
     result['ip'] = ip
-    port_list = port.split(',')
-    port_list = list(map(int, port_list))
+    ports = port.split(',')
+    # port_list = list(map(int, port_list))
+    port_list = list()
+    for port in ports:
+        try:
+            port_list.append(int(port))
+        except ValueError as e:
+            # bad request
+            return jsonify(error=str(e)), 400, {'ContentType': 'application/json'}
 
     port_scan = PortScan(ip, port_list)
     port_scan.scan()
 
     result['result'] = port_scan.result
 
-    return json.dumps(result)
+    return jsonify(result), 200, {'ContentType': 'application/json'}
 
 
 if __name__ == '__main__':
@@ -61,7 +90,7 @@ if __name__ == '__main__':
     # port_scan = PortScan(
     #     # '192.168.3.2',
     #     'www.google.com',
-    #     [443, 80, 234]
+    #     ['sjkdf', 80, 234]
     # )
     #
     # port_scan.scan()
