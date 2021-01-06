@@ -12,10 +12,15 @@ app = Flask(__name__)
 class PortScan:
     def __init__(self, target, port_list):
 
+        # 處理一下傳入的網址
         if target.startswith('https://'):
             target = target[len('https://'):]
         elif target.startswith('http://'):
             target = target[len('http://'):]
+
+        # 把最後的斜線拿掉，不拿會都沒有回應
+        if target.endswith('/'):
+            target = target[:-1]
 
         self.target = target
         self.port_list = port_list
@@ -23,6 +28,7 @@ class PortScan:
         self.result = dict()
 
     def check_url(self):
+        # 檢查 url 是否符合格式
         if not isinstance(self.target, str):
             return False
         regex = re.compile(
@@ -35,7 +41,7 @@ class PortScan:
         return re.match(regex, self.target) is not None
 
     def check_port(self):
-
+        # 檢查 port 是否符合格式
         if not isinstance(self.port_list, list):
             return False
 
@@ -50,6 +56,7 @@ class PortScan:
 
     def scan(self):
 
+        # 為提升效能，每個 port 都分出一個 thread 來打
         thread_list = list()
 
         for port in self.port_list:
@@ -61,54 +68,75 @@ class PortScan:
             t.join()
 
     def run(self, current_port):
+        # 設定 socket timeout
         socket.setdefaulttimeout(1)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
 
         try:
+            # 連線
             result = s.connect_ex((self.target, current_port))
+            # 如果沒例外，就看看結果如何，存起來
             self.result[current_port] = (result == 0)
         except TypeError:
+            # 並不是一個網址
             pass
         except socket.gaierror:
+            # url 主機不存在
             self.result[current_port] = False
         finally:
+            # 無論如何記得關閉連線
             s.close()
+
+def set_response(msg, code):
+    # 設定回應
+    if code == 200:
+        return jsonify(msg), code, {'ContentType': 'application/json'}
+    return jsonify(error=msg), code, {'ContentType': 'application/json'}
 
 
 @app.route('/')
 def get():
+    # 取得參數
     ip = request.args.get('ip')
     port = request.args.get('port')
 
+    # 按照, 分開
     ports = port.split(',')
 
+    # 轉成整數
     try:
         port_list = list(map(int, ports))
     except ValueError as e:
-        return jsonify(error=f'invalid port value: {port}'), 400, {'ContentType': 'application/json'}
+        # 表示無法被順利轉為整數
+        return set_response(f'invalid port value: {port}', 400)
 
+    # 初始化掃描物件
     port_scan = PortScan(ip, port_list)
 
+    # 檢查參數正確性
     if not port_scan.check_url():
-        return jsonify(error=f'invalid url: {ip}'), 400, {'ContentType': 'application/json'}
+        return set_response(f'invalid url: {ip}', 400)
     if not port_scan.check_port():
-        return jsonify(error=f'invalid port: {port}'), 400, {'ContentType': 'application/json'}
+        return set_response(f'invalid port: {port}', 400)
 
+    # 開始掃描
     port_scan.scan()
 
+    # 開始組合結果
     result = dict()
 
     result['ip'] = ip
     result['ports'] = port_scan.result
 
-    return jsonify(result), 200, {'ContentType': 'application/json'}
+    return set_response(result, 200)
 
 
 if __name__ == '__main__':
+    # 啟動伺服器
     app.run(host='0.0.0.0', port=9999, debug=True)
 
-
+    # 以下是本機測試
     def test(target, port_list):
         port_scan = PortScan(target, port_list)
 
