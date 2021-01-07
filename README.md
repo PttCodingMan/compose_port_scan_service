@@ -7,7 +7,7 @@
 ### View
 
 ##### Sample input
-```http://localhost/?ip=www.google.com&port=22,23,80,443```
+```http://localhost/api/v1/query_port?ip=www.google.com&port=22,23,80,443```
 
 ##### Sample result
 

@@ -22,14 +22,14 @@ class PortScan:
         if target.endswith('/'):
             target = target[:-1]
 
-        self.target = target
-        self.port_list = port_list
+        self._target = target
+        self._port_list = port_list
 
         self.result = dict()
 
     def check_url(self):
         # 檢查 url 是否符合格式
-        if not isinstance(self.target, str):
+        if not isinstance(self._target, str):
             return False
         regex = re.compile(
             r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
@@ -38,18 +38,18 @@ class PortScan:
             r'(?::\d+)?'  # optional port
             r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-        return re.match(regex, self.target) is not None
+        return re.match(regex, self._target) is not None
 
     def check_port(self):
         # 檢查 port 是否符合格式
-        if not isinstance(self.port_list, list):
+        if not isinstance(self._port_list, list):
             return False
 
-        for port in self.port_list:
+        for port in self._port_list:
             if not isinstance(port, int):
                 return False
 
-            if not (0 <= port <= 65353):
+            if not (0 <= port <= 65535):
                 return False
 
         return True
@@ -59,7 +59,7 @@ class PortScan:
         # 為提升效能，每個 port 都分出一個 thread 來打
         thread_list = list()
 
-        for port in self.port_list:
+        for port in self._port_list:
             t = threading.Thread(target=self.run, args=(port,))
             t.start()
             thread_list.append(t)
@@ -75,7 +75,7 @@ class PortScan:
 
         try:
             # 連線
-            result = s.connect_ex((self.target, current_port))
+            result = s.connect_ex((self._target, current_port))
             # 如果沒例外，就看看結果如何，存起來
             self.result[current_port] = (result == 0)
         except TypeError:
@@ -88,14 +88,12 @@ class PortScan:
             # 無論如何記得關閉連線
             s.close()
 
+
 def set_response(msg, code):
-    # 設定回應
-    if code == 200:
-        return jsonify(msg), code, {'ContentType': 'application/json'}
-    return jsonify(error=msg), code, {'ContentType': 'application/json'}
+    return jsonify(msg), code, {'ContentType': 'application/json'}
 
 
-@app.route('/')
+@app.route('/api/v1/query_port')
 def get():
     # 取得參數
     ip = request.args.get('ip')
@@ -107,7 +105,7 @@ def get():
     # 轉成整數
     try:
         port_list = list(map(int, ports))
-    except ValueError as e:
+    except ValueError:
         # 表示無法被順利轉為整數
         return set_response(f'invalid port value: {port}', 400)
 
